@@ -1,2 +1,94 @@
-# Fake-Speech-Detection-from-Raw-Waveforms-with-RawNet2
-This project addresses fake speech detection through an end-to-end learning framework operating directly on raw audio waveforms. Using the RawNet2 architecture, the study examines the model’s ability to learn discriminative signal-level patterns between genuine and spoofed speech.
+# Fake Speech Detection from Raw Waveforms with RawNet2
+
+End-to-end fake speech detection using RawNet2 on raw audio waveforms.
+Based on the paper **"End-to-end anti-spoofing with RawNet2"** (Tak et al., ICASSP 2021).
+
+## Project Structure
+
+```
+.
+├── config.yaml              # All hyperparameters and W&B settings
+├── pyproject.toml           # uv project configuration
+├── src/
+│   └── rawnet2/
+│       ├── __init__.py
+│       ├── model.py         # RawNet2 architecture (SincConv + FMS + GRU)
+│       ├── dataset.py       # ASVspoof 2019 LA data loading
+│       ├── utils.py         # EER, min t-DCF, device helpers
+│       ├── train.py         # Training script with W&B tracking
+│       └── evaluate.py      # Evaluation script with W&B artifact loading
+├── data/                    # ASVspoof 2019 LA dataset (not tracked)
+│   └── LA/
+│       ├── ASVspoof2019_LA_cm_protocols/
+│       ├── ASVspoof2019_LA_train/flac/
+│       ├── ASVspoof2019_LA_dev/flac/
+│       └── ASVspoof2019_LA_eval/flac/
+└── weights/                 # Saved checkpoints (not tracked)
+```
+
+## Setup
+
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync
+```
+
+## Training
+
+```bash
+# Default config (S1: Mel-scale sinc filters)
+uv run python -m rawnet2.train --config config.yaml
+
+# S2: Inverse-Mel scale
+# Edit config.yaml: model.sinc_scale: "inverse-mel"
+uv run python -m rawnet2.train --config config.yaml
+
+# S3: Linear scale
+# Edit config.yaml: model.sinc_scale: "linear"
+uv run python -m rawnet2.train --config config.yaml
+```
+
+## Evaluation
+
+```bash
+# Evaluate using local checkpoint
+uv run python -m rawnet2.evaluate --config config.yaml --checkpoint weights/best.pth
+
+# Evaluate using W&B artifact (auto-load best model)
+uv run python -m rawnet2.evaluate --config config.yaml
+```
+
+## Lint
+
+```bash
+uv run ruff check src/
+uv run ruff format src/
+```
+
+## Architecture Details
+
+| Layer | Input | Output |
+|-------|-------|--------|
+| SincConv (fixed, 128 filters) + MaxPool(3) | (B, 64000) | (B, 128, 21290) |
+| ResBlock × 2 [128→128] + FMS | (B, 128, 21290) | (B, 128, 2365) |
+| ResBlock × 4 [128→512] + FMS | (B, 128, 2365) | (B, 512, 29) |
+| GRU (3×1024) | (B, 29, 512) | (B, 1024) |
+| FC (1024→1024→2) | (B, 1024) | (B, 2) |
+
+## W&B Integration
+
+Experiments are tracked via Weights & Biases. Configure in `config.yaml` under the `wandb` section:
+
+```yaml
+wandb:
+  project: "rawnet2-antispoofing"
+  mode: "online"     # online | offline | disabled
+  log_model: true    # Save best checkpoint as artifact
+```
+
+## References
+
+- Tak et al., "End-to-end anti-spoofing with RawNet2", ICASSP 2021
+- Jung et al., "RawNet2: Improved end-to-end speaker verification", INTERSPEECH 2020
+- ASVspoof 2019 LA Database: https://datashare.ed.ac.uk/

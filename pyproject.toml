@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rawnet2"
+version = "0.1.0"
+description = "RawNet2-based fake speech detection from raw waveforms (ASVspoof 2019 LA)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.4.4",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.8.0",
+    "soundfile>=0.13.1",
+    "torch>=2.11.0",
+    "torchaudio>=2.11.0",
+    "tqdm>=4.67.3",
+    "wandb>=0.26.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rawnet2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N"]
+ignore = ["N812"]
+
+[tool.ruff.format]
+quote-style = "double"
