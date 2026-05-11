@@ -9,6 +9,8 @@ Based on the paper **"End-to-end anti-spoofing with RawNet2"** (Tak et al., ICAS
 .
 ├── config.yaml              # All hyperparameters and W&B settings
 ├── pyproject.toml           # uv project configuration
+├── scripts/
+│   └── download_dataset.py  # Dataset downloader (Kaggle -> data/LA)
 ├── src/
 │   └── rawnet2/
 │       ├── __init__.py
@@ -33,6 +35,46 @@ Requires Python 3.12 and [uv](https://docs.astral.sh/uv/):
 ```bash
 uv sync
 ```
+
+## Dataset
+
+This project uses the **ASVspoof 2019 LA** (Logical Access) subset.
+
+### Option A: Automatic Download (Recommended)
+
+```bash
+uv run python scripts/download_dataset.py
+```
+
+This downloads the LA-only subset (~7.66 GB, 122k files) from Kaggle and
+auto-creates a junction at `data/LA`. No config changes needed.
+
+**Prerequisite:** Kaggle API credentials
+- Get token: https://www.kaggle.com/settings -> API -> Create New Token
+- Place `kaggle.json` in `~/.kaggle/` (Linux/Mac) or `%USERPROFILE%\.kaggle\` (Windows)
+- Or set env vars: `KAGGLE_USERNAME` + `KAGGLE_KEY`
+
+### Option B: Manual Download
+
+If you prefer manual download, get the LA dataset from either source:
+
+- **Kaggle** (recommended): https://www.kaggle.com/datasets/anishsarkar22/asvpoof-2019-dataset-la
+- **Official source**: https://datashare.ed.ac.uk/handle/10283/3336
+
+Extract and place under `data/LA/` with this exact structure:
+
+```
+data/LA/
+├── ASVspoof2019_LA_cm_protocols/
+│   ├── ASVspoof2019.LA.cm.train.trn.txt
+│   ├── ASVspoof2019.LA.cm.dev.trl.txt
+│   └── ASVspoof2019.LA.cm.eval.trl.txt
+├── ASVspoof2019_LA_train/flac/
+├── ASVspoof2019_LA_dev/flac/
+└── ASVspoof2019_LA_eval/flac/
+```
+
+> `config.yaml` already points to `data/LA` via `data.data_dir`. No edits needed.
 
 ## Training
 

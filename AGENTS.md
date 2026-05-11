@@ -13,8 +13,8 @@ uv run python -m rawnet2.train --config config.yaml
 uv run python -m rawnet2.evaluate --config config.yaml --checkpoint weights/best.pth
 
 # Lint
-uv run ruff check src/
-uv run ruff format src/
+uv run ruff check src/ scripts/
+uv run ruff format src/ scripts/
 ```
 
 ## Key Architecture Decisions
@@ -46,6 +46,18 @@ uv run ruff format src/
 
 ## Dataset
 
-- ASVspoof 2019 LA logical access (LA) track
+- **ASVspoof 2019 LA** (Logical Access) logical access track
 - Protocol files: `ASVspoof2019.LA.cm.{train,dev,eval}.trl.txt`
 - Audio: `.flac` files in `data/LA/ASVspoof2019_LA_{train,dev,eval}/flac/`
+
+### Download Options
+
+1. **Script (recommended)**: `uv run python scripts/download_dataset.py`
+   - Downloads LA-only subset (~7.66 GB) from Kaggle (`anishsarkar22/asvpoof-2019-dataset-la`)
+   - Creates junction at `data/LA` pointing to kagglehub cache
+   - Requires Kaggle API credentials
+
+2. **Manual**: Download from Kaggle or official Edinburgh Datashare
+   - Kaggle: https://www.kaggle.com/datasets/anishsarkar22/asvpoof-2019-dataset-la
+   - Official: https://datashare.ed.ac.uk/handle/10283/3336
+   - Extract to `data/LA/` maintaining original directory structure
