@@ -198,6 +198,7 @@ cython_debug/
 data/
 weights/
 artifacts/
+papers/
 scores.txt
 
 # Weights & Biases
