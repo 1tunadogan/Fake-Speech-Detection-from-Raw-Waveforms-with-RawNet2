@@ -76,6 +76,35 @@ data/LA/
 
 > `config.yaml` already points to `data/LA` via `data.data_dir`. No edits needed.
 
+## Full End-to-End Run (Train + Eval + W&B Online)
+
+Run this sequence once for a full pipeline execution:
+
+```bash
+# 1) Install dependencies
+uv sync
+
+# 2) Login to W&B (one-time per machine/session as needed)
+uv run wandb login --relogin
+
+# 3) Ensure cloud sync is enabled
+uv run wandb online
+
+# 4) Download dataset (if not already present)
+uv run python scripts/download_dataset.py
+
+# 5) Train
+uv run python -m rawnet2.train --config config.yaml
+
+# 6) Evaluate (local best checkpoint)
+uv run python -m rawnet2.evaluate --config config.yaml --checkpoint weights/best.pth
+```
+
+Notes:
+- Device is selected automatically in this order: **CUDA -> MPS -> CPU**.
+- `model.sinc_scale` accepts lowercase values only: `mel`, `inverse-mel`, `linear`.
+- With `wandb.mode: "online"` in `config.yaml`, runs sync to W&B cloud automatically.
+
 ## Training
 
 ```bash
@@ -128,6 +157,13 @@ wandb:
   mode: "online"     # online | offline | disabled
   log_model: true    # Save best checkpoint as artifact
 ```
+
+Default naming behavior:
+- Train run name: `RawNet2-{sinc_scale}-train`
+- Eval run name: `RawNet2-{sinc_scale}-eval`
+- Model artifact name: `RawNet2-{sinc_scale}`
+
+If you set `wandb.name` in `config.yaml`, that explicit value overrides the default run naming.
 
 ## References
 

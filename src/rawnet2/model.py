@@ -17,7 +17,7 @@ class SincConv(nn.Module):
         dilation=1,
         bias=False,
         groups=1,
-        freq_scale="Mel",
+        freq_scale="mel",
     ):
         super(SincConv, self).__init__()
 
@@ -50,7 +50,7 @@ class SincConv(nn.Module):
             fmelmin = np.min(fmel)
             filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 2)
             filbandwidthsf = self._mel_to_hz(filbandwidthsmel)
-            self.freq = filbandwidthsf[: self.out_channels]
+            freq_values = filbandwidthsf[: self.out_channels]
 
         elif freq_scale == "inverse-mel":
             fmel = self._hz_to_mel(f)
@@ -59,24 +59,26 @@ class SincConv(nn.Module):
             filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 2)
             filbandwidthsf = self._mel_to_hz(filbandwidthsmel)
             mel = filbandwidthsf[: self.out_channels]
-            self.freq = np.abs(np.flip(mel) - 1)
+            freq_values = np.abs(np.flip(mel) - 1)
 
         elif freq_scale == "linear":
             fmin = np.min(f)
             fmax = np.max(f)
             filbandwidths = np.linspace(fmin, fmax, self.out_channels + 2)
-            self.freq = filbandwidths[: self.out_channels]
+            freq_values = filbandwidths[: self.out_channels]
 
         else:
             raise ValueError(
                 f"Unknown freq_scale: {freq_scale}. Expected one of: 'mel', 'inverse-mel', 'linear'"
             )
 
-        hsupp = torch.arange(-(self.kernel_size - 1) / 2, (self.kernel_size - 1) / 2 + 1)
+        hsupp = torch.arange(
+            -(self.kernel_size - 1) / 2,
+            (self.kernel_size - 1) / 2 + 1,
+            dtype=torch.float32,
+        )
         self.register_buffer("hsupp", hsupp)
-
-        band_pass = torch.zeros(self.out_channels - 1, self.kernel_size)
-        self.register_buffer("band_pass", band_pass)
+        self.register_buffer("freq", torch.tensor(freq_values, dtype=torch.float32))
 
     @staticmethod
     def _hz_to_mel(hz):
@@ -87,19 +89,25 @@ class SincConv(nn.Module):
         return 700 * (10 ** (mel / 2595) - 1)
 
     def forward(self, x):
-        for i in range(len(self.freq) - 1):
-            fmin = self.freq[i]
-            fmax = self.freq[i + 1]
-            h_high = (2 * fmax / self.sample_rate) * np.sinc(
-                2 * fmax * self.hsupp.cpu().numpy() / self.sample_rate
-            )
-            h_low = (2 * fmin / self.sample_rate) * np.sinc(
-                2 * fmin * self.hsupp.cpu().numpy() / self.sample_rate
-            )
-            h_ideal = h_high - h_low
-            self.band_pass[i, :] = torch.from_numpy(np.hamming(self.kernel_size) * h_ideal).float()
+        freqs = self.freq.to(device=x.device)
+        hsupp = self.hsupp.to(device=x.device, dtype=x.dtype)
+        window = torch.hamming_window(
+            self.kernel_size,
+            periodic=False,
+            device=x.device,
+            dtype=x.dtype,
+        )
 
-        filters = self.band_pass.view(self.out_channels - 1, 1, self.kernel_size)
+        band_pass = []
+        for i in range(freqs.numel() - 1):
+            fmin = freqs[i]
+            fmax = freqs[i + 1]
+            h_high = (2 * fmax / self.sample_rate) * torch.sinc(2 * fmax * hsupp / self.sample_rate)
+            h_low = (2 * fmin / self.sample_rate) * torch.sinc(2 * fmin * hsupp / self.sample_rate)
+            h_ideal = h_high - h_low
+            band_pass.append(window * h_ideal)
+
+        filters = torch.stack(band_pass, dim=0).unsqueeze(1)
 
         return F.conv1d(
             x,

@@ -27,6 +27,16 @@ def base_config():
 
 
 class TestSincConv:
+    def test_default_scale_is_mel(self, device):
+        layer = SincConv(
+            device=device,
+            out_channels=128,
+            kernel_size=129,
+        )
+        x = torch.randn(1, 64000).view(1, 1, 64000)
+        out = layer(x)
+        assert out.shape == (1, 128, 63872)
+
     def test_output_shape(self, device):
         layer = SincConv(
             device=device,

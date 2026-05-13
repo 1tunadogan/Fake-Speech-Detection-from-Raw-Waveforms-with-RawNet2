@@ -195,9 +195,10 @@ cython_debug/
 .pypirc
 
 # Project specific
- data/
- weights/
- scores.txt
+data/
+weights/
+artifacts/
+scores.txt
 
 # Weights & Biases
 wandb/

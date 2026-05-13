@@ -6,7 +6,20 @@ from sklearn.metrics import roc_curve
 
 
 def get_device():
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+
+    mps_backend = getattr(torch.backends, "mps", None)
+    if (
+        mps_backend is not None
+        and hasattr(mps_backend, "is_available")
+        and hasattr(mps_backend, "is_built")
+        and mps_backend.is_built()
+        and mps_backend.is_available()
+    ):
+        return torch.device("mps")
+
+    return torch.device("cpu")
 
 
 def set_seed(seed=1234):
@@ -76,6 +89,9 @@ def compute_min_tdcf(scores, labels, p_target=0.05, c_miss=1, c_fa=10):
     Returns:
         min_tdcf: float - minimum t-DCF value
     """
+    if len(np.unique(labels)) < 2:
+        return 0.0
+
     fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 

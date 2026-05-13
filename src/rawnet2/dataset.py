@@ -50,7 +50,8 @@ class ASVspoofDataset(Dataset):
 
                 file_path = os.path.join(audio_dir, f"{file_name}.flac")
 
-                label = 0 if key == "bonafide" else 1
+                # Bonafide (authentic): key="-", Spoof (attack): key="A01"-"A06", etc.
+                label = 0 if key == "-" else 1
 
                 self.utterances.append(file_path)
                 self.labels.append(label)

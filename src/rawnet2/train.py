@@ -100,10 +100,12 @@ def main():
 
     # W&B init
     wandb_config = config.get("wandb", {})
+    default_run_name = f"RawNet2-{config['model']['sinc_scale']}-train"
+    run_name = wandb_config.get("name") or default_run_name
     run = wandb.init(
         project=wandb_config.get("project", "rawnet2-antispoofing"),
         entity=wandb_config.get("entity", None),
-        name=wandb_config.get("name", None),
+        name=run_name,
         group=wandb_config.get("group", None),
         tags=wandb_config.get("tags", []),
         notes=wandb_config.get("notes", None),

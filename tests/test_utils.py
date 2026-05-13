@@ -94,9 +94,65 @@ class TestComputeMinTDCF:
         # Perfect separation should give very low t-DCF
         assert tdcf < 0.01
 
+    def test_all_bonafide(self):
+        scores = np.array([0.1, 0.2, 0.3, 0.4])
+        labels = np.array([0, 0, 0, 0])
+        tdcf = compute_min_tdcf(scores, labels)
+        assert tdcf == 0.0
+
+    def test_all_spoof(self):
+        scores = np.array([0.6, 0.7, 0.8, 0.9])
+        labels = np.array([1, 1, 1, 1])
+        tdcf = compute_min_tdcf(scores, labels)
+        assert tdcf == 0.0
+
 
 class TestGetDevice:
-    def test_returns_cpu(self):
+    def test_cuda_priority_over_mps(self, monkeypatch):
+        class _FakeMPS:
+            @staticmethod
+            def is_built():
+                return True
+
+            @staticmethod
+            def is_available():
+                return True
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(torch.backends, "mps", _FakeMPS(), raising=False)
+
+        device = get_device()
+        assert device.type == "cuda"
+
+    def test_mps_when_no_cuda(self, monkeypatch):
+        class _FakeMPS:
+            @staticmethod
+            def is_built():
+                return True
+
+            @staticmethod
+            def is_available():
+                return True
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        monkeypatch.setattr(torch.backends, "mps", _FakeMPS(), raising=False)
+
+        device = get_device()
+        assert device.type == "mps"
+
+    def test_cpu_fallback(self, monkeypatch):
+        class _FakeMPS:
+            @staticmethod
+            def is_built():
+                return True
+
+            @staticmethod
+            def is_available():
+                return False
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        monkeypatch.setattr(torch.backends, "mps", _FakeMPS(), raising=False)
+
         device = get_device()
         assert device.type == "cpu"
 
