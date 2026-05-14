@@ -42,6 +42,8 @@ def pad_or_trim(waveform, target_length):
         Tensor of shape (channels, target_length)
     """
     current_length = waveform.shape[1]
+    if current_length == 0:
+        raise ValueError("Cannot pad or trim an empty waveform")
 
     if current_length < target_length:
         repeats = (target_length // current_length) + 1
@@ -63,11 +65,11 @@ def compute_eer(scores, labels):
     Returns:
         eer: float - Equal Error Rate in percentage
     """
-    # Edge case: all labels are the same class
+    # Edge case: all labels are the same class — EER is undefined
     if len(np.unique(labels)) < 2:
-        return 0.0
+        return float("nan")
 
-    fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
+    fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
     # Find the threshold where |FAR - FRR| is minimized
@@ -77,7 +79,11 @@ def compute_eer(scores, labels):
 
 
 def compute_min_tdcf(scores, labels, p_target=0.05, c_miss=1, c_fa=10):
-    """Compute minimum normalized tandem Detection Cost Function (t-DCF).
+    """Compute a simplified minimum detection cost proxy.
+
+    This is not the official ASVspoof tandem DCF implementation because it does
+    not model an external ASV system. Use it for training/evaluation monitoring,
+    not for benchmark reporting against official ASVspoof results.
 
     Args:
         scores: ndarray of shape (N,) - spoof scores
@@ -90,9 +96,9 @@ def compute_min_tdcf(scores, labels, p_target=0.05, c_miss=1, c_fa=10):
         min_tdcf: float - minimum t-DCF value
     """
     if len(np.unique(labels)) < 2:
-        return 0.0
+        return float("nan")
 
-    fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
+    fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
     tdcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)

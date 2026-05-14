@@ -4,8 +4,8 @@ import tempfile
 import pytest
 import torch
 import torch.nn as nn
-import wandb
 
+import wandb
 from rawnet2.model import RawNet2
 
 

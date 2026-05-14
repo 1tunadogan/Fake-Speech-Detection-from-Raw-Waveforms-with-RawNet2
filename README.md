@@ -130,12 +130,25 @@ uv run python -m rawnet2.evaluate --config config.yaml --checkpoint weights/best
 uv run python -m rawnet2.evaluate --config config.yaml
 ```
 
-## Lint
+Evaluation now fails fast if no checkpoint can be found. To intentionally smoke-test
+the evaluation pipeline with a randomly initialized model, pass `--allow-random-init`.
+Use a distinctive W&B run name for such smoke tests by setting `wandb.name` in a
+temporary config, for example `RawNet2-mel-smoke-<your-name>`.
+
+## Quality checks
 
 ```bash
-uv run ruff check src/
-uv run ruff format src/
+uv run ruff check src/ scripts/ tests/
+uv run ruff format src/ scripts/ tests/
+uv run pytest
 ```
+
+## Metrics note
+
+`compute_min_tdcf()` is a simplified detection-cost proxy intended for monitoring.
+It is not the official ASVspoof tandem DCF implementation because it does not model
+an external ASV system. Use the official ASVspoof evaluation tooling for benchmark
+reporting.
 
 ## Architecture Details
 
@@ -156,6 +169,15 @@ wandb:
   project: "rawnet2-antispoofing"
   mode: "online"     # online | offline | disabled
   log_model: true    # Save best checkpoint as artifact
+```
+
+Data loading performance knobs are available under `data` in `config.yaml`:
+
+```yaml
+data:
+  num_workers: 0          # Increase on Linux/GPU systems for faster loading
+  pin_memory: false       # Usually useful with CUDA
+  persistent_workers: false
 ```
 
 Default naming behavior:

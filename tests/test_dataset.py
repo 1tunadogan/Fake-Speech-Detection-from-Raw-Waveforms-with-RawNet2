@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from rawnet2.dataset import ASVspoofDataset, get_dataloaders, get_eval_dataloader
@@ -84,6 +85,42 @@ class TestASVspoofDatasetParsing:
             ds = ASVspoofDataset(tmpdir, proto, input_length=16000)
             assert len(ds) == 2
 
+    def test_unknown_label_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proto = os.path.join(tmpdir, "protocol.txt")
+            with open(proto, "w") as f:
+                f.write("LA_0079 file1 A01 unknown\n")
+
+            with pytest.raises(ValueError, match="Unknown label"):
+                ASVspoofDataset(tmpdir, proto, input_length=16000)
+
+    def test_subset_fraction_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proto = os.path.join(tmpdir, "protocol.txt")
+            with open(proto, "w") as f:
+                for i in range(100):
+                    f.write(f"LA_0079 file{i} - bonafide\n")
+
+            ds1 = ASVspoofDataset(
+                tmpdir, proto, input_length=16000, subset_fraction=0.01, seed=1234
+            )
+            ds2 = ASVspoofDataset(
+                tmpdir, proto, input_length=16000, subset_fraction=0.01, seed=1234
+            )
+
+            assert len(ds1) == 1
+            assert ds1.utterances == ds2.utterances
+            assert ds1.labels == ds2.labels
+
+    def test_invalid_subset_fraction_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proto = os.path.join(tmpdir, "protocol.txt")
+            with open(proto, "w") as f:
+                f.write("LA_0079 file1 - bonafide\n")
+
+            with pytest.raises(ValueError, match="subset_fraction"):
+                ASVspoofDataset(tmpdir, proto, input_length=16000, subset_fraction=0)
+
 
 class TestASVspoofDatasetAudioProcessing:
     def test_resample(self):
@@ -142,6 +179,20 @@ class TestASVspoofDatasetAudioProcessing:
             ds = ASVspoofDataset(tmpdir, proto, input_length=16000)
             wf, _ = ds[0]
             assert wf.dim() == 1  # Squeezed from (1, L) to (L,)
+
+    def test_stereo_audio_is_converted_to_mono(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proto = os.path.join(tmpdir, "protocol.txt")
+            with open(proto, "w") as f:
+                f.write("LA_0079 file1 - bonafide\n")
+
+            os.makedirs(os.path.join(tmpdir, "flac"))
+            audio = np.random.randn(16000, 2).astype(np.float32)
+            sf.write(os.path.join(tmpdir, "flac", "file1.flac"), audio, 16000)
+
+            ds = ASVspoofDataset(tmpdir, proto, input_length=16000)
+            wf, _ = ds[0]
+            assert wf.shape == (16000,)
 
 
 class TestDataLoaderSplit:

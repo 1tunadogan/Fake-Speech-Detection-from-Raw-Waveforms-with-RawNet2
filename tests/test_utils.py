@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from rawnet2.utils import (
@@ -41,6 +42,11 @@ class TestPadOrTrim:
         out = pad_or_trim(x, 64000)
         assert out.shape == (1, 64000)
 
+    def test_empty_waveform_raises(self):
+        x = torch.empty(1, 0)
+        with pytest.raises(ValueError, match="empty waveform"):
+            pad_or_trim(x, 64000)
+
 
 class TestComputeEER:
     def test_perfect_separation(self):
@@ -60,15 +66,15 @@ class TestComputeEER:
     def test_all_bonafide(self):
         scores = np.array([0.1, 0.2, 0.3, 0.4])
         labels = np.array([0, 0, 0, 0])
-        # Single class: return 0.0 by definition
+        # Single class: EER is undefined
         eer = compute_eer(scores, labels)
-        assert eer == 0.0
+        assert np.isnan(eer)
 
     def test_all_spoof(self):
         scores = np.array([0.6, 0.7, 0.8, 0.9])
         labels = np.array([1, 1, 1, 1])
         eer = compute_eer(scores, labels)
-        assert eer == 0.0
+        assert np.isnan(eer)
 
 
 class TestComputeMinTDCF:
@@ -98,13 +104,13 @@ class TestComputeMinTDCF:
         scores = np.array([0.1, 0.2, 0.3, 0.4])
         labels = np.array([0, 0, 0, 0])
         tdcf = compute_min_tdcf(scores, labels)
-        assert tdcf == 0.0
+        assert np.isnan(tdcf)
 
     def test_all_spoof(self):
         scores = np.array([0.6, 0.7, 0.8, 0.9])
         labels = np.array([1, 1, 1, 1])
         tdcf = compute_min_tdcf(scores, labels)
-        assert tdcf == 0.0
+        assert np.isnan(tdcf)
 
 
 class TestGetDevice:

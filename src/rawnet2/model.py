@@ -24,7 +24,9 @@ class SincConv(nn.Module):
         if in_channels != 1:
             raise ValueError(f"SincConv only supports one input channel (got {in_channels})")
 
-        self.out_channels = out_channels + 1
+        # Store out_channels boundaries so forward() can iterate
+        # freqs.numel()-1 adjacent pairs and produce exactly out_channels filters.
+        self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.sample_rate = sample_rate
         self.device = device
@@ -48,24 +50,23 @@ class SincConv(nn.Module):
             fmel = self._hz_to_mel(f)
             fmelmax = np.max(fmel)
             fmelmin = np.min(fmel)
-            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 2)
+            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 1)
             filbandwidthsf = self._mel_to_hz(filbandwidthsmel)
-            freq_values = filbandwidthsf[: self.out_channels]
+            freq_values = filbandwidthsf
 
         elif freq_scale == "inverse-mel":
             fmel = self._hz_to_mel(f)
             fmelmax = np.max(fmel)
             fmelmin = np.min(fmel)
-            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 2)
+            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 1)
             filbandwidthsf = self._mel_to_hz(filbandwidthsmel)
-            mel = filbandwidthsf[: self.out_channels]
-            freq_values = np.abs(np.flip(mel) - 1)
+            freq_values = self.sample_rate / 2 - np.flip(filbandwidthsf)
 
         elif freq_scale == "linear":
             fmin = np.min(f)
             fmax = np.max(f)
-            filbandwidths = np.linspace(fmin, fmax, self.out_channels + 2)
-            freq_values = filbandwidths[: self.out_channels]
+            filbandwidths = np.linspace(fmin, fmax, self.out_channels + 1)
+            freq_values = filbandwidths
 
         else:
             raise ValueError(
@@ -200,11 +201,26 @@ class ResidualBlock(nn.Module):
         return out
 
 
+class LayerNorm(nn.Module):
+    def __init__(self, features, eps=1e-6):
+        super(LayerNorm, self).__init__()
+        self.gamma = nn.Parameter(torch.ones(features))
+        self.beta = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+
+
 class RawNet2(nn.Module):
-    def __init__(self, d_args, device):
+    def __init__(self, d_args, device, input_length=64000):
         super(RawNet2, self).__init__()
 
         self.device = device
+
+        self.ln = LayerNorm(input_length)
 
         self.sinc_conv = SincConv(
             device=self.device,
@@ -251,8 +267,6 @@ class RawNet2(nn.Module):
             in_features=d_args["fc_hidden"], out_features=d_args["num_classes"], bias=True
         )
 
-        self.sig = nn.Sigmoid()
-
         self._init_weights()
 
     def _init_weights(self):
@@ -270,6 +284,7 @@ class RawNet2(nn.Module):
     def forward(self, x, is_test=False):
         nb_samp = x.shape[0]
         len_seq = x.shape[1]
+        x = self.ln(x)
         x = x.view(nb_samp, 1, len_seq)
 
         x = self.sinc_conv(x)
@@ -289,6 +304,7 @@ class RawNet2(nn.Module):
         x = x[:, -1, :]
 
         x = self.fc1_gru(x)
+        x = self.lrelu(x)
         x = self.fc2_gru(x)
 
         if not is_test:

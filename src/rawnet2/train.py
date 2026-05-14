@@ -4,9 +4,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb
 import yaml
 from tqdm import tqdm
+
+import wandb
 
 from .dataset import get_dataloaders
 from .model import RawNet2
@@ -18,7 +19,7 @@ def train_epoch(train_loader, model, criterion, optimizer, device, log_interval,
     running_loss = 0.0
     num_correct = 0
     num_total = 0
-    global_step = epoch * len(train_loader)
+    global_step = (epoch - 1) * len(train_loader)
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
     for batch_idx, (batch_x, batch_y) in enumerate(pbar):
@@ -53,8 +54,9 @@ def train_epoch(train_loader, model, criterion, optimizer, device, log_interval,
     return avg_loss, train_acc
 
 
-def validate_epoch(val_loader, model, device):
+def validate_epoch(val_loader, model, criterion, device):
     model.eval()
+    running_loss = 0.0
     num_correct = 0
     num_total = 0
     all_scores = []
@@ -65,15 +67,19 @@ def validate_epoch(val_loader, model, device):
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 
-            outputs = model(batch_x, is_test=True)
+            logits = model(batch_x, is_test=False)
+            loss = criterion(logits, batch_y)
+            outputs = torch.softmax(logits, dim=1)
             _, predicted = outputs.max(1)
 
+            running_loss += loss.item() * batch_x.size(0)
             num_correct += (predicted == batch_y).sum().item()
             num_total += batch_x.size(0)
 
             all_scores.extend(outputs[:, 1].cpu().numpy())
             all_labels.extend(batch_y.cpu().numpy())
 
+    val_loss = running_loss / num_total
     val_acc = 100.0 * num_correct / num_total
 
     all_scores = np.array(all_scores)
@@ -81,7 +87,7 @@ def validate_epoch(val_loader, model, device):
     val_eer = compute_eer(all_scores, all_labels)
     val_tdcf = compute_min_tdcf(all_scores, all_labels)
 
-    return val_acc, val_eer, val_tdcf
+    return val_loss, val_acc, val_eer, val_tdcf
 
 
 def main():
@@ -120,12 +126,20 @@ def main():
         input_length=config["data"]["input_length"],
         sample_rate=config["data"]["sample_rate"],
         seed=config["training"]["seed"],
+        num_workers=config["data"].get("num_workers", 0),
+        pin_memory=config["data"].get("pin_memory", False),
+        persistent_workers=config["data"].get("persistent_workers", False),
+        subset_fraction=config["data"].get("subset_fraction", 1.0),
     )
 
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
     # Model
-    model = RawNet2(d_args=config["model"], device=device).to(device)
+    model = RawNet2(
+        d_args=config["model"],
+        device=device,
+        input_length=config["data"]["input_length"],
+    ).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")
 
@@ -142,7 +156,7 @@ def main():
 
     # Loss function
     if config["training"]["loss"] == "weighted_ce":
-        weight = torch.FloatTensor([1.0, 9.0]).to(device)
+        weight = torch.FloatTensor([9.0, 1.0]).to(device)
         criterion = nn.CrossEntropyLoss(weight=weight)
     else:
         criterion = nn.CrossEntropyLoss()
@@ -151,7 +165,7 @@ def main():
     save_dir = config["training"]["save_dir"]
     os.makedirs(save_dir, exist_ok=True)
 
-    best_acc = 0.0
+    best_eer = float("inf")
     num_epochs = config["training"]["epochs"]
     log_interval = config["training"]["log_interval"]
 
@@ -160,7 +174,7 @@ def main():
             train_loader, model, criterion, optimizer, device, log_interval, run, epoch
         )
 
-        val_acc, val_eer, val_tdcf = validate_epoch(val_loader, model, device)
+        val_loss, val_acc, val_eer, val_tdcf = validate_epoch(val_loader, model, criterion, device)
 
         # Log epoch metrics
         run.log(
@@ -168,6 +182,7 @@ def main():
                 "epoch": epoch,
                 "train/loss": train_loss,
                 "train/accuracy": train_acc,
+                "val/loss": val_loss,
                 "val/accuracy": val_acc,
                 "val/eer": val_eer,
                 "val/min_tdcf": val_tdcf,
@@ -177,15 +192,16 @@ def main():
         print(
             f"Epoch {epoch}/{num_epochs} | "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
-            f"Val Acc: {val_acc:.2f}% | Val EER: {val_eer:.2f}% | Val t-DCF: {val_tdcf:.4f}"
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% | "
+            f"Val EER: {val_eer:.2f}% | Val t-DCF: {val_tdcf:.4f}"
         )
 
-        # Save best model
-        if val_acc > best_acc:
-            best_acc = val_acc
+        # Save best model (lowest EER)
+        if val_eer < best_eer:
+            best_eer = val_eer
             best_path = os.path.join(save_dir, "best.pth")
             torch.save(model.state_dict(), best_path)
-            print(f"Best model saved (val_acc={val_acc:.2f}%)")
+            print(f"Best model saved (val_eer={val_eer:.2f}%)")
 
             # Log model artifact to W&B
             if wandb_config.get("log_model", True):

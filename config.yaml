@@ -21,6 +21,10 @@ data:
   data_dir: "data/LA"
   sample_rate: 16000
   input_length: 64000
+  subset_fraction: 1.0
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
 
 # ═══════════════════════════════════════════════════════════════
 #  Model Architecture

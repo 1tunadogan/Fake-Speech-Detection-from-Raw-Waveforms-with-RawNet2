@@ -17,7 +17,7 @@ def base_config():
         "sinc_filters": 128,
         "sinc_kernel_size": 129,
         "sinc_scale": "mel",
-        "resblock_filts": [[128, 128], [128, 512], [512, 512]],
+        "resblock_filts": [[128, 128], [128, 512]],
         "resblock_blocks": [2, 4],
         "gru_hidden": 1024,
         "gru_layers": 3,
@@ -120,7 +120,7 @@ class TestFMS:
         fms = FMS([128, 128])
         x = torch.randn(2, 128, 100)
         out = fms(x)
-        # FMS applies x * sigmoid(fc(avgpool)) + sigmoid(fc(avgpool))
+        # FMS applies x * sigmoid(fc(avgpool))
         # So output should be in a reasonable range
         assert not torch.isnan(out).any()
         assert not torch.isinf(out).any()

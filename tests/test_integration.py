@@ -15,7 +15,7 @@ class TestIntegration:
             "sinc_filters": 128,
             "sinc_kernel_size": 129,
             "sinc_scale": "mel",
-            "resblock_filts": [[128, 128], [128, 512], [512, 512]],
+            "resblock_filts": [[128, 128], [128, 512]],
             "resblock_blocks": [2, 4],
             "gru_hidden": 1024,
             "gru_layers": 3,
