@@ -4,35 +4,58 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb
 import yaml
 from tqdm import tqdm
-
-import wandb
 
 from .dataset import get_dataloaders
 from .model import RawNet2
 from .utils import compute_eer, compute_min_tdcf, get_device, set_seed
 
 
-def train_epoch(train_loader, model, criterion, optimizer, device, log_interval, run, epoch):
+def train_epoch(
+    train_loader,
+    model,
+    criterion,
+    optimizer,
+    device,
+    log_interval,
+    run,
+    epoch,
+    accumulation_steps=1,
+    scaler=None,
+):
     model.train()
     running_loss = 0.0
     num_correct = 0
     num_total = 0
     global_step = (epoch - 1) * len(train_loader)
+    optimizer.zero_grad()
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
     for batch_idx, (batch_x, batch_y) in enumerate(pbar):
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
 
-        optimizer.zero_grad()
-        outputs = model(batch_x)
-        loss = criterion(outputs, batch_y)
-        loss.backward()
-        optimizer.step()
+        with torch.amp.autocast("cuda", dtype=torch.float16):
+            outputs = model(batch_x)
+            loss = criterion(outputs, batch_y)
+            loss = loss / accumulation_steps
 
-        running_loss += loss.item() * batch_x.size(0)
+        if scaler is not None:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
+        if (batch_idx + 1) % accumulation_steps == 0:
+            if scaler is not None:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
+
+        running_loss += loss.item() * batch_x.size(0) * accumulation_steps
         _, predicted = outputs.max(1)
         num_correct += (predicted == batch_y).sum().item()
         num_total += batch_x.size(0)
@@ -41,13 +64,13 @@ def train_epoch(train_loader, model, criterion, optimizer, device, log_interval,
         if batch_idx % log_interval == 0:
             run.log(
                 {
-                    "train/batch_loss": loss.item(),
+                    "train/batch_loss": loss.item() * accumulation_steps,
                     "train/lr": optimizer.param_groups[0]["lr"],
                     "train/global_step": global_step,
                 }
             )
 
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+        pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
 
     avg_loss = running_loss / num_total
     train_acc = 100.0 * num_correct / num_total
@@ -67,9 +90,10 @@ def validate_epoch(val_loader, model, criterion, device):
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 
-            logits = model(batch_x, is_test=False)
-            loss = criterion(logits, batch_y)
-            outputs = torch.softmax(logits, dim=1)
+            with torch.amp.autocast("cuda", dtype=torch.float16):
+                logits = model(batch_x, is_test=False)
+                loss = criterion(logits, batch_y)
+                outputs = torch.softmax(logits, dim=1)
             _, predicted = outputs.max(1)
 
             running_loss += loss.item() * batch_x.size(0)
@@ -95,16 +119,19 @@ def main():
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    # Load config
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
-    # Set seed and device
     set_seed(config["training"]["seed"])
     device = get_device()
     print(f"Using device: {device}")
 
-    # W&B init
+    if device.type == "cuda":
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        torch.cuda.empty_cache()
+        total_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+        print(f"GPU: {torch.cuda.get_device_name(0)} ({total_mem:.1f}GB)")
+
     wandb_config = config.get("wandb", {})
     default_run_name = f"RawNet2-{config['model']['sinc_scale']}-train"
     run_name = wandb_config.get("name") or default_run_name
@@ -120,7 +147,6 @@ def main():
         job_type="train",
     )
 
-    # Data loaders
     train_loader, val_loader = get_dataloaders(
         data_dir=config["data"]["data_dir"],
         batch_size=config["training"]["batch_size"],
@@ -135,7 +161,6 @@ def main():
 
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
-    # Model
     model = RawNet2(
         d_args=config["model"],
         device=device,
@@ -144,10 +169,8 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")
 
-    # Watch model with W&B
     run.watch(model, log="gradients", log_freq=100)
 
-    # Optimizer
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config["training"]["lr"],
@@ -155,14 +178,20 @@ def main():
         amsgrad=True,
     )
 
-    # Loss function
     if config["training"]["loss"] == "weighted_ce":
         weight = torch.tensor([1.0, 9.0], device=device)
         criterion = nn.CrossEntropyLoss(weight=weight)
     else:
         criterion = nn.CrossEntropyLoss()
 
-    # Training loop
+    amp_config = config["training"].get("amp", {})
+    use_amp = amp_config.get("enabled", False)
+    scaler = torch.amp.GradScaler("cuda") if use_amp else None
+    accumulation_steps = config["training"].get("accumulation_steps", 1)
+
+    if use_amp:
+        print(f"AMP enabled (float16), gradient accumulation: {accumulation_steps}x")
+
     save_dir = config["training"]["save_dir"]
     os.makedirs(save_dir, exist_ok=True)
 
@@ -180,12 +209,20 @@ def main():
 
     for epoch in range(1, num_epochs + 1):
         train_loss, train_acc = train_epoch(
-            train_loader, model, criterion, optimizer, device, log_interval, run, epoch
+            train_loader,
+            model,
+            criterion,
+            optimizer,
+            device,
+            log_interval,
+            run,
+            epoch,
+            accumulation_steps=accumulation_steps,
+            scaler=scaler,
         )
 
         val_loss, val_acc, val_eer, val_tdcf = validate_epoch(val_loader, model, criterion, device)
 
-        # Log epoch metrics
         run.log(
             {
                 "epoch": epoch,
@@ -205,14 +242,12 @@ def main():
             f"Val EER: {val_eer:.2f}% | Val t-DCF: {val_tdcf:.4f}"
         )
 
-        # Save best model (lowest EER)
         if val_eer < best_eer:
             best_eer = val_eer
             best_path = os.path.join(save_dir, "best.pth")
             torch.save(model.state_dict(), best_path)
             print(f"Best model saved (val_eer={val_eer:.2f}%)")
 
-            # Log model artifact to W&B
             if wandb_config.get("log_model", True):
                 run.log_model(
                     path=best_path,
@@ -220,11 +255,9 @@ def main():
                     aliases=["best", f"epoch-{epoch}"],
                 )
 
-        # Save checkpoint every epoch
         epoch_path = os.path.join(save_dir, f"epoch_{epoch}.pth")
         torch.save(model.state_dict(), epoch_path)
 
-        # Early stopping check
         if es_enabled:
             if es_mode == "min":
                 improved = not np.isnan(val_eer) and val_eer < es_best - es_min_delta

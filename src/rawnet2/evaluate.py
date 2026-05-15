@@ -3,10 +3,9 @@ import os
 
 import numpy as np
 import torch
+import wandb
 import yaml
 from tqdm import tqdm
-
-import wandb
 
 from .dataset import get_eval_dataloader
 from .model import RawNet2
@@ -23,7 +22,8 @@ def evaluate(model, eval_loader, device, output_path):
         for batch_x, batch_y in tqdm(eval_loader, desc="Evaluation"):
             batch_x = batch_x.to(device)
 
-            outputs = model(batch_x, is_test=True)
+            with torch.amp.autocast("cuda", dtype=torch.float16):
+                outputs = model(batch_x, is_test=True)
             scores = outputs[:, 1]
             _, predicted = outputs.max(1)
 
