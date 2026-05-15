@@ -157,21 +157,14 @@ def get_dataloaders(
         seed=seed,
     )
 
-    # Split dev: 90% for training augmentation, 10% for validation
-    dev_size = len(dev_dataset)
-    train_dev_size = int(0.9 * dev_size)
-    val_size = dev_size - train_dev_size
-
-    train_dev_subset, val_subset = torch.utils.data.random_split(
-        dev_dataset, [train_dev_size, val_size], generator=torch.Generator().manual_seed(seed)
-    )
-
-    # Combine original train + 90% dev
-    combined_train = torch.utils.data.ConcatDataset([train_dataset, train_dev_subset])
-
+    # Use dev dataset purely for validation — no speaker overlap with train.
+    # Combining dev into train causes speaker-level data leakage since the same
+    # speakers appear in both the 90% train-dev subset and the 10% val subset,
+    # inflating validation metrics artificially.
     use_persistent_workers = persistent_workers and num_workers > 0
+
     train_loader = DataLoader(
-        combined_train,
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
@@ -180,7 +173,7 @@ def get_dataloaders(
         drop_last=True,
     )
     val_loader = DataLoader(
-        val_subset,
+        dev_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,

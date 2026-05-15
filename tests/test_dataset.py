@@ -241,10 +241,10 @@ class TestDataLoaderSplit:
                 seed=1234,
             )
 
-            # Train = 10 original + 9 dev (90%) = 19
-            # Val = 1 dev (10%) = 1
-            assert len(train_loader.dataset) == 19
-            assert len(val_loader.dataset) == 1
+            # Train = 10 (train set only, no dev leakage)
+            # Val = 10 (full dev set, no speaker overlap)
+            assert len(train_loader.dataset) == 10
+            assert len(val_loader.dataset) == 10
 
     def test_eval_dataloader(self):
         with tempfile.TemporaryDirectory() as tmpdir:

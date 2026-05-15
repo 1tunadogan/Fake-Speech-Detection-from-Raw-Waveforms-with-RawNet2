@@ -117,6 +117,7 @@ def main():
         notes=wandb_config.get("notes", None),
         config=config,
         mode=wandb_config.get("mode", "online"),
+        job_type="train",
     )
 
     # Data loaders
@@ -144,7 +145,7 @@ def main():
     print(f"Model parameters: {num_params:,}")
 
     # Watch model with W&B
-    run.watch(model, log="all", log_freq=100)
+    run.watch(model, log="gradients", log_freq=100)
 
     # Optimizer
     optimizer = torch.optim.Adam(
@@ -156,7 +157,7 @@ def main():
 
     # Loss function
     if config["training"]["loss"] == "weighted_ce":
-        weight = torch.FloatTensor([9.0, 1.0]).to(device)
+        weight = torch.tensor([1.0, 9.0], device=device)
         criterion = nn.CrossEntropyLoss(weight=weight)
     else:
         criterion = nn.CrossEntropyLoss()
@@ -168,6 +169,14 @@ def main():
     best_eer = float("inf")
     num_epochs = config["training"]["epochs"]
     log_interval = config["training"]["log_interval"]
+
+    es_config = config["training"].get("early_stopping", {})
+    es_enabled = es_config.get("enabled", False)
+    es_patience = es_config.get("patience", 10)
+    es_min_delta = es_config.get("min_delta", 0.0)
+    es_mode = es_config.get("mode", "min")
+    es_best = float("inf") if es_mode == "min" else float("-inf")
+    es_counter = 0
 
     for epoch in range(1, num_epochs + 1):
         train_loss, train_acc = train_epoch(
@@ -214,6 +223,41 @@ def main():
         # Save checkpoint every epoch
         epoch_path = os.path.join(save_dir, f"epoch_{epoch}.pth")
         torch.save(model.state_dict(), epoch_path)
+
+        # Early stopping check
+        if es_enabled:
+            if es_mode == "min":
+                improved = not np.isnan(val_eer) and val_eer < es_best - es_min_delta
+                current_metric = val_eer
+            else:
+                improved = not np.isnan(val_acc) and val_acc > es_best + es_min_delta
+                current_metric = val_acc
+
+            if improved:
+                es_best = current_metric
+                es_counter = 0
+            else:
+                es_counter += 1
+                print(f"Early stopping: {es_counter}/{es_patience} epochs without improvement")
+
+                if es_counter >= es_patience:
+                    print(f"Early stopping triggered at epoch {epoch}. Best val_eer={es_best:.2f}%")
+                    run.log(
+                        {
+                            "early_stopping/triggered": True,
+                            "early_stopping/best_epoch": epoch - es_counter,
+                            "early_stopping/best_metric": es_best,
+                        }
+                    )
+                    break
+
+            run.log(
+                {
+                    "early_stopping/patience_remaining": es_patience - es_counter,
+                    "early_stopping/best_metric": es_best,
+                    "early_stopping/counter": es_counter,
+                }
+            )
 
     run.finish()
     print("Training completed.")

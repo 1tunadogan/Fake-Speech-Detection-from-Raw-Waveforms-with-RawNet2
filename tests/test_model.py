@@ -167,7 +167,7 @@ class TestRawNet2Shapes:
         x = model.sinc_conv(x)
         x = F.max_pool1d(torch.abs(x), 3)
         x = model.first_bn(x)
-        x = model.lrelu(x)
+        x = model.selu(x)
 
         assert x.shape == (2, 128, 21290)
 
@@ -197,7 +197,7 @@ class TestRawNet2Shapes:
 
         x = torch.randn(2, 512, 29)
         x = model.bn_before_gru(x)
-        x = model.lrelu(x)
+        x = model.selu(x)
         x = x.permute(0, 2, 1)
         model.gru.flatten_parameters()
         x, _ = model.gru(x)
@@ -269,9 +269,9 @@ class TestRawNet2AllScales:
         x = F.max_pool1d(torch.abs(x), 3)
         assert x.shape == (2, 128, 21290)
 
-        # After BN + LReLU
+        # After BN + SELU
         x = model.first_bn(x)
-        x = model.lrelu(x)
+        x = model.selu(x)
 
         # After all residual blocks
         for block in model.blocks:

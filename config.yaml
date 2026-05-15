@@ -55,6 +55,13 @@ training:
   save_dir: "weights"
   log_interval: 10
 
+  early_stopping:
+    enabled: true
+    metric: "val/eer"
+    mode: "min"
+    patience: 5
+    min_delta: 0.1
+
 # ═══════════════════════════════════════════════════════════════
 #  Evaluation
 # ═══════════════════════════════════════════════════════════════

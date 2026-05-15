@@ -44,8 +44,7 @@ def evaluate(model, eval_loader, device, output_path):
     with open(output_path, "w") as f:
         for i in range(len(all_scores)):
             file_name = os.path.basename(eval_loader.dataset.utterances[i]).replace(".flac", "")
-            label_str = "spoof" if all_labels[i] == 1 else "bonafide"
-            f.write(f"{file_name} {label_str} {all_scores[i]:.6f}\n")
+            f.write(f"{file_name} {all_scores[i]:.6f}\n")
 
     return accuracy, eer, min_tdcf
 
@@ -85,79 +84,77 @@ def main():
         job_type="eval",
     )
 
-    # Model
-    model = RawNet2(
-        d_args=config["model"],
-        device=device,
-        input_length=config["data"]["input_length"],
-    ).to(device)
+    try:
+        # Model
+        model = RawNet2(
+            d_args=config["model"],
+            device=device,
+            input_length=config["data"]["input_length"],
+        ).to(device)
 
-    # Load checkpoint
-    checkpoint_path = args.checkpoint
-    if checkpoint_path is None:
-        checkpoint_path = config["eval"].get("checkpoint", None)
+        # Load checkpoint
+        checkpoint_path = args.checkpoint
+        if checkpoint_path is None:
+            checkpoint_path = config["eval"].get("checkpoint", None)
 
-    if checkpoint_path is None:
-        # Try to load from W&B artifact
-        try:
-            model_path = run.use_model(f"RawNet2-{config['model']['sinc_scale']}:best")
-            checkpoint_path = model_path
-            print(f"Loaded model artifact from W&B: {checkpoint_path}")
-        except Exception as e:
-            print(f"Could not load model from W&B artifact: {e}")
-            # Fallback to local best checkpoint
-            checkpoint_path = os.path.join(config["training"]["save_dir"], "best.pth")
-            print(f"Falling back to local checkpoint: {checkpoint_path}")
+        if checkpoint_path is None:
+            try:
+                model_path = run.use_model(f"RawNet2-{config['model']['sinc_scale']}:best")
+                checkpoint_path = model_path
+                print(f"Loaded model artifact from W&B: {checkpoint_path}")
+            except Exception as e:
+                print(f"Could not load model from W&B artifact: {e}")
+                checkpoint_path = os.path.join(config["training"]["save_dir"], "best.pth")
+                print(f"Falling back to local checkpoint: {checkpoint_path}")
 
-    if checkpoint_path and os.path.exists(checkpoint_path):
-        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-        print(f"Loaded checkpoint: {checkpoint_path}")
-    elif args.allow_random_init:
-        print("Warning: No checkpoint loaded. Using randomly initialized model.")
-    else:
-        run.finish()
-        raise FileNotFoundError(
-            "No checkpoint found for evaluation. Provide --checkpoint, set eval.checkpoint, "
-            "make the W&B artifact/local best checkpoint available, or pass --allow-random-init."
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+            print(f"Loaded checkpoint: {checkpoint_path}")
+        elif args.allow_random_init:
+            print("Warning: No checkpoint loaded. Using randomly initialized model.")
+        else:
+            raise FileNotFoundError(
+                "No checkpoint found. Provide --checkpoint, set eval.checkpoint, "
+                "or pass --allow-random-init."
+            )
+
+        # Eval data loader
+        eval_loader = get_eval_dataloader(
+            data_dir=config["data"]["data_dir"],
+            batch_size=config["training"]["batch_size"],
+            input_length=config["data"]["input_length"],
+            sample_rate=config["data"]["sample_rate"],
+            num_workers=config["data"].get("num_workers", 0),
+            pin_memory=config["data"].get("pin_memory", False),
+            persistent_workers=config["data"].get("persistent_workers", False),
+            subset_fraction=config["data"].get("subset_fraction", 1.0),
+            seed=config["training"].get("seed", 1234),
         )
 
-    # Eval data loader
-    eval_loader = get_eval_dataloader(
-        data_dir=config["data"]["data_dir"],
-        batch_size=config["training"]["batch_size"],
-        input_length=config["data"]["input_length"],
-        sample_rate=config["data"]["sample_rate"],
-        num_workers=config["data"].get("num_workers", 0),
-        pin_memory=config["data"].get("pin_memory", False),
-        persistent_workers=config["data"].get("persistent_workers", False),
-        subset_fraction=config["data"].get("subset_fraction", 1.0),
-        seed=config["training"].get("seed", 1234),
-    )
+        # Output path
+        output_path = args.output
+        if output_path is None:
+            output_path = config["eval"].get("eval_output", "scores.txt")
 
-    # Output path
-    output_path = args.output
-    if output_path is None:
-        output_path = config["eval"].get("eval_output", "scores.txt")
+        # Evaluate
+        accuracy, eer, min_tdcf = evaluate(model, eval_loader, device, output_path)
 
-    # Evaluate
-    accuracy, eer, min_tdcf = evaluate(model, eval_loader, device, output_path)
+        print("Evaluation Results:")
+        print(f"  Accuracy: {accuracy:.2f}%")
+        print(f"  EER: {eer:.2f}%")
+        print(f"  min t-DCF: {min_tdcf:.4f}")
+        print(f"  Scores saved to: {output_path}")
 
-    print("Evaluation Results:")
-    print(f"  Accuracy: {accuracy:.2f}%")
-    print(f"  EER: {eer:.2f}%")
-    print(f"  min t-DCF: {min_tdcf:.4f}")
-    print(f"  Scores saved to: {output_path}")
-
-    # Log to W&B
-    run.log(
-        {
-            "eval/accuracy": accuracy,
-            "eval/eer": eer,
-            "eval/min_tdcf": min_tdcf,
-        }
-    )
-
-    run.finish()
+        # Log to W&B
+        run.log(
+            {
+                "eval/accuracy": accuracy,
+                "eval/eer": eer,
+                "eval/min_tdcf": min_tdcf,
+            }
+        )
+    finally:
+        run.finish()
 
 
 if __name__ == "__main__":

@@ -58,9 +58,10 @@ class SincConv(nn.Module):
             fmel = self._hz_to_mel(f)
             fmelmax = np.max(fmel)
             fmelmin = np.min(fmel)
-            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 1)
+            filbandwidthsmel = np.linspace(fmelmin, fmelmax, self.out_channels + 2)
             filbandwidthsf = self._mel_to_hz(filbandwidthsmel)
-            freq_values = self.sample_rate / 2 - np.flip(filbandwidthsf)
+            mel_freqs = filbandwidthsf[: self.out_channels + 1]
+            freq_values = np.abs(np.flip(mel_freqs) - 1)
 
         elif freq_scale == "linear":
             fmin = np.min(f)
@@ -231,7 +232,7 @@ class RawNet2(nn.Module):
         )
 
         self.first_bn = nn.BatchNorm1d(num_features=d_args["sinc_filters"])
-        self.lrelu = nn.LeakyReLU(negative_slope=0.3)
+        self.selu = nn.SELU(inplace=True)
 
         # Build residual blocks
         self.blocks = nn.ModuleList()
@@ -279,7 +280,7 @@ class RawNet2(nn.Module):
                 pass
             else:
                 if hasattr(m, "weight"):
-                    nn.init.kaiming_normal_(m.weight, a=0.01)
+                    nn.init.kaiming_normal_(m.weight, a=0.01, nonlinearity="leaky_relu")
 
     def forward(self, x, is_test=False):
         nb_samp = x.shape[0]
@@ -290,13 +291,13 @@ class RawNet2(nn.Module):
         x = self.sinc_conv(x)
         x = F.max_pool1d(torch.abs(x), 3)
         x = self.first_bn(x)
-        x = self.lrelu(x)
+        x = self.selu(x)
 
         for block in self.blocks:
             x = block(x)
 
         x = self.bn_before_gru(x)
-        x = self.lrelu(x)
+        x = self.selu(x)
 
         x = x.permute(0, 2, 1)
         self.gru.flatten_parameters()
@@ -304,7 +305,6 @@ class RawNet2(nn.Module):
         x = x[:, -1, :]
 
         x = self.fc1_gru(x)
-        x = self.lrelu(x)
         x = self.fc2_gru(x)
 
         if not is_test:

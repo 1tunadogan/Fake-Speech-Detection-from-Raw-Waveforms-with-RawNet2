@@ -33,7 +33,11 @@ Based on the paper **"End-to-end anti-spoofing with RawNet2"** (Tak et al., ICAS
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync
+# CPU environment
+uv sync --extra cpu
+
+# GPU environment (CUDA 12.6)
+uv sync --extra gpu
 ```
 
 ## Dataset
@@ -82,21 +86,18 @@ Run this sequence once for a full pipeline execution:
 
 ```bash
 # 1) Install dependencies
-uv sync
+uv sync --extra cpu   # or --extra gpu for CUDA
 
-# 2) Login to W&B (one-time per machine/session as needed)
-uv run wandb login --relogin
+# 2) Login to W&B (one-time per machine/session)
+wandb login
 
-# 3) Ensure cloud sync is enabled
-uv run wandb online
-
-# 4) Download dataset (if not already present)
+# 3) Download dataset (if not already present)
 uv run python scripts/download_dataset.py
 
-# 5) Train
+# 4) Train
 uv run python -m rawnet2.train --config config.yaml
 
-# 6) Evaluate (local best checkpoint)
+# 5) Evaluate (local best checkpoint)
 uv run python -m rawnet2.evaluate --config config.yaml --checkpoint weights/best.pth
 ```
 

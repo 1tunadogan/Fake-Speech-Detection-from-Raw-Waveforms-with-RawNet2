@@ -65,35 +65,39 @@ def compute_eer(scores, labels):
     Returns:
         eer: float - Equal Error Rate in percentage
     """
-    # Edge case: all labels are the same class — EER is undefined
     if len(np.unique(labels)) < 2:
         return float("nan")
 
     fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
-    # Find the threshold where |FAR - FRR| is minimized
-    eer = fpr[np.nanargmin(np.abs(fnr - fpr))]
+    eer = np.mean((fpr[np.nanargmin(np.abs(fnr - fpr))], fnr[np.nanargmin(np.abs(fnr - fpr))]))
 
     return eer * 100
 
 
-def compute_min_tdcf(scores, labels, p_target=0.05, c_miss=1, c_fa=10):
-    """Compute a simplified minimum detection cost proxy.
+def compute_min_tdcf(scores, labels, p_spoof=0.05, c_miss=1, c_fa=10):
+    """Compute a simplified minimum detection cost proxy for a standalone CM system.
 
-    This is not the official ASVspoof tandem DCF implementation because it does
-    not model an external ASV system. Use it for training/evaluation monitoring,
-    not for benchmark reporting against official ASVspoof results.
+    This is not the official ASVspoof tandem DCF — it does not model an external
+    ASV system.  It computes a normalized cost for the CM alone:
+
+        t-DCF = (C_miss · FNR · P_bonafide + C_fa · FPR · P_spoof)
+                / min(C_miss · P_bonafide, C_fa · P_spoof)
+
+    A value of 0 means perfect detection; 1 means the CM is no better than
+    an arbitrarily bad baseline.  Use the official ASVspoof evaluation tooling
+    for benchmark reporting.
 
     Args:
-        scores: ndarray of shape (N,) - spoof scores
+        scores: ndarray of shape (N,) - spoof scores (class 1 probabilities)
         labels: ndarray of shape (N,) - 0=bonafide, 1=spoof
-        p_target: Prior probability of target class (bonafide)
-        c_miss: Cost of miss
-        c_fa: Cost of false alarm
+        p_spoof: Prior probability of a spoofing attack (default 0.05, per ASVspoof 2019)
+        c_miss: Cost of CM falsely rejecting a bonafide utterance
+        c_fa: Cost of CM falsely accepting a spoof
 
     Returns:
-        min_tdcf: float - minimum t-DCF value
+        min_tdcf: float - normalized minimum t-DCF value
     """
     if len(np.unique(labels)) < 2:
         return float("nan")
@@ -101,8 +105,11 @@ def compute_min_tdcf(scores, labels, p_target=0.05, c_miss=1, c_fa=10):
     fpr, tpr, _ = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
-    tdcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)
-    min_tdcf = np.min(tdcf)
+    p_bonafide = 1 - p_spoof
+
+    tdcf = c_miss * fnr * p_bonafide + c_fa * fpr * p_spoof
+    norm = min(c_miss * p_bonafide, c_fa * p_spoof)
+    min_tdcf = np.min(tdcf) / norm
 
     return min_tdcf
 

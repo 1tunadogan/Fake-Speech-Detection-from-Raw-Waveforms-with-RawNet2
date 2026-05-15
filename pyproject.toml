@@ -9,29 +9,55 @@ description = "RawNet2-based fake speech detection from raw waveforms (ASVspoof 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "kagglehub>=0.6.19",
-    "numpy>=2.4.4",
-    "pyyaml>=6.0.3",
-    "scikit-learn>=1.8.0",
-    "soundfile>=0.13.1",
-    "torch>=2.7.0,<2.8.0",
-    "torchaudio>=2.7.0,<2.8.0",
-    "tqdm>=4.67.3",
-    "wandb>=0.26.1",
+    "kagglehub",
+    "numpy",
+    "pyyaml",
+    "scikit-learn",
+    "soundfile",
+    "tqdm",
+    "wandb",
 ]
+
+[project.optional-dependencies]
+cpu = ["torch", "torchaudio"]
+gpu = ["torch", "torchaudio"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rawnet2"]
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.3",
-    "ruff>=0.15.12",
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "gpu" },
+    ],
 ]
 
-[tool.uv]
-extra-index-url = ["https://download.pytorch.org/whl/cu128"]
-index-strategy = "unsafe-best-match"
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-gpu", extra = "gpu", marker = "sys_platform == 'linux'" },
+]
+torchaudio = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-gpu", extra = "gpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
 
 [tool.ruff]
 line-length = 100
