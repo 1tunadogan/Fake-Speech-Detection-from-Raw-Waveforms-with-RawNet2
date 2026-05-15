@@ -4,9 +4,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb
 import yaml
 from tqdm import tqdm
+
+import wandb
 
 from .dataset import get_dataloaders
 from .model import RawNet2
@@ -157,6 +158,7 @@ def main():
         pin_memory=config["data"].get("pin_memory", False),
         persistent_workers=config["data"].get("persistent_workers", False),
         subset_fraction=config["data"].get("subset_fraction", 1.0),
+        prefetch_factor=config["data"].get("prefetch_factor", 2),
     )
 
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
@@ -168,6 +170,12 @@ def main():
     ).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")
+
+    compile_config = config["training"].get("compile", {})
+    use_compile = compile_config.get("enabled", False)
+    if use_compile and device.type == "cuda":
+        print("Compiling model with torch.compile (first epoch will be slower)...")
+        model = torch.compile(model, mode=compile_config.get("mode", "default"))
 
     run.watch(model, log="gradients", log_freq=100)
 

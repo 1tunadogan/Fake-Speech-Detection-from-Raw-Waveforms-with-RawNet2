@@ -123,6 +123,7 @@ def get_dataloaders(
     pin_memory=False,
     persistent_workers=False,
     subset_fraction=1.0,
+    prefetch_factor=2,
 ):
     torch.manual_seed(seed)
 
@@ -171,6 +172,7 @@ def get_dataloaders(
         pin_memory=pin_memory,
         persistent_workers=use_persistent_workers,
         drop_last=True,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
     )
     val_loader = DataLoader(
         dev_dataset,
@@ -179,6 +181,7 @@ def get_dataloaders(
         num_workers=num_workers,
         pin_memory=pin_memory,
         persistent_workers=use_persistent_workers,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
     )
 
     return train_loader, val_loader
@@ -194,6 +197,7 @@ def get_eval_dataloader(
     persistent_workers=False,
     subset_fraction=1.0,
     seed=1234,
+    prefetch_factor=2,
 ):
     eval_protocol = os.path.join(
         data_dir,
@@ -218,6 +222,7 @@ def get_eval_dataloader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         persistent_workers=use_persistent_workers,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
     )
 
     return eval_loader

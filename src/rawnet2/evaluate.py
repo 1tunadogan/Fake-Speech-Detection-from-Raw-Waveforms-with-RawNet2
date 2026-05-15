@@ -3,9 +3,10 @@ import os
 
 import numpy as np
 import torch
-import wandb
 import yaml
 from tqdm import tqdm
+
+import wandb
 
 from .dataset import get_eval_dataloader
 from .model import RawNet2
@@ -129,6 +130,7 @@ def main():
             persistent_workers=config["data"].get("persistent_workers", False),
             subset_fraction=config["data"].get("subset_fraction", 1.0),
             seed=config["training"].get("seed", 1234),
+            prefetch_factor=config["data"].get("prefetch_factor", 2),
         )
 
         # Output path
